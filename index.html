@@ -148,6 +148,17 @@
   .role-card .btn{ width:100%; margin-bottom:8px; padding:11px; font-size:14px; }
 
   .win-banner{ position:fixed; top:60px; left:50%; transform:translateX(-50%); background:var(--amber); color:#2a2007; font-weight:700; padding:10px 20px; border-radius:30px; box-shadow:0 6px 20px rgba(0,0,0,0.4); z-index:95; font-size:14px; }
+  .toast{
+    position:fixed; bottom:22px; left:50%; transform:translateX(-50%);
+    background: var(--amber); color:#2a2007; font-weight:700; font-size:13.5px;
+    padding:11px 20px; border-radius:24px; box-shadow:0 8px 24px rgba(0,0,0,0.45);
+    z-index:210; text-align:center; max-width:90vw;
+    animation: toastPop .25s ease-out;
+  }
+  @keyframes toastPop{
+    0%{ transform: translateX(-50%) translateY(12px); opacity:0; }
+    100%{ transform: translateX(-50%) translateY(0); opacity:1; }
+  }
 </style>
 </head>
 <body>
@@ -366,6 +377,7 @@ function maybeAutoCycle(state){
     }
     state.stuck.p1 = false;
     state.stuck.p2 = false;
+    state.lastEvent = { type:'stuckCycle', at: Date.now() };
     return true;
   }
   return false;
@@ -425,6 +437,7 @@ function normalizeState(raw){
   raw.resetPromptOpen = !!raw.resetPromptOpen;
   raw.stuck = raw.stuck || { p1:false, p2:false };
   if(raw.winner === undefined) raw.winner = null;
+  if(raw.lastEvent === undefined) raw.lastEvent = null;
   raw.players = raw.players || {};
   for(const owner of ['p1','p2']){
     const p = raw.players[owner] = raw.players[owner] || {};
@@ -452,20 +465,44 @@ let cached = null;      // last known-good state
 let myRole = null;      // 'p1' | 'p2' | 'spectator'
 let pendingPopId = null;  // card id to play a "landed" pop animation on next render
 
+// Every place that adopts a newly-loaded/received state should go through
+// here — it's the one spot that notices a stuck-reshuffle actually happened
+// (via the state's lastEvent marker) and shows a toast, regardless of
+// whether THIS device was the one that triggered it or just received it
+// over the live sync. That's what makes the reshuffle visible on both
+// screens even though the flags themselves are already cleared by the time
+// the other device's data arrives.
+function adoptState(newState){
+  if(cached && newState && newState.lastEvent &&
+     (!cached.lastEvent || cached.lastEvent.at !== newState.lastEvent.at)){
+    if(newState.lastEvent.type === 'stuckCycle'){
+      showToast('Both hands reshuffled — top card sent to the bottom');
+    }
+  }
+  cached = newState;
+}
+function showToast(text){
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.textContent = text;
+  document.body.appendChild(el);
+  setTimeout(()=> el.remove(), 3200);
+}
+
 // Runs a mutation against the freshest possible state, saves, updates cache, re-renders.
 async function withFreshState(mutator){
   let state = await loadState();
   if(!state) state = newGameState();
   const result = mutator(state) || {};
   if(result.abort){
-    cached = state;
+    adoptState(state);
     render();
     return result;
   }
   maybeAutoCycle(state);
   maybeResolveReset(state);
   await saveState(state);
-  cached = state;
+  adoptState(state);
   render();
   return result;
 }
@@ -477,10 +514,10 @@ async function ensureRole(){
     state.claims.p1 = true;
     myRole = 'p1';
     await saveState(state);
-    cached = state;
+    adoptState(state);
     return;
   }
-  cached = state;
+  adoptState(state);
   if(!state.claims.p1){
     myRole = null; // ask
   } else if(!state.claims.p2){
@@ -804,7 +841,7 @@ async function boot(){
       if(cycled || resetHappened){
         saveState(fresh);
       }
-      cached = fresh;
+      adoptState(fresh);
       render();
     }
   });
