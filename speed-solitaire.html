@@ -1,0 +1,766 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Speed Solitaire</title>
+<style>
+  :root{
+    --felt: #14523c;
+    --felt-dark: #0d3c2b;
+    --panel: rgba(6, 31, 22, 0.72);
+    --panel-border: rgba(255,255,255,0.08);
+    --card-face: #f7f4ec;
+    --ink: #1c2321;
+    --red: #b0272d;
+    --blue: #1b4f9c;
+    --p1-accent: #b0272d;
+    --p2-accent: #1b4f9c;
+    --amber: #e7b944;
+    --amber-dim: rgba(231,185,68,0.25);
+    --text-soft: rgba(255,255,255,0.72);
+    --card-w: 58px;
+    --card-h: 82px;
+    --overlap: 22px;
+    --radius: 7px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  @media (min-width: 640px){
+    :root{ --card-w: 72px; --card-h: 100px; --overlap: 26px; }
+  }
+  *{ box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html,body{ margin:0; height:100%; background: radial-gradient(120% 140% at 50% -10%, var(--felt) 0%, var(--felt-dark) 70%); color: var(--text-soft); overflow-x:hidden; }
+  body{ min-height:100vh; display:flex; flex-direction:column; user-select:none; }
+
+  .topbar{
+    display:flex; align-items:center; justify-content:space-between;
+    padding: 10px 12px; gap:10px;
+    background: var(--panel); border-bottom:1px solid var(--panel-border);
+    position: sticky; top:0; z-index: 40;
+  }
+  .topbar h1{ font-size:15px; font-weight:600; letter-spacing:0.2px; color:#fff; margin:0; }
+  .light{
+    width:14px; height:14px; border-radius:50%;
+    background: rgba(255,255,255,0.15);
+    border:1px solid rgba(255,255,255,0.25);
+    transition: box-shadow .2s, background .2s;
+  }
+  .light.on{ background: var(--amber); box-shadow: 0 0 10px 3px var(--amber); }
+  .opp-status{ display:flex; align-items:center; gap:6px; font-size:12px; }
+  .topbar-right{ display:flex; align-items:center; gap:8px; }
+
+  button{ font-family:inherit; cursor:pointer; }
+  .btn{
+    border:1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.06);
+    color:#fff; border-radius:20px; padding:7px 13px; font-size:12.5px; font-weight:500;
+  }
+  .btn:active{ transform: scale(0.97); }
+  .btn.stuck{ background: rgba(231,185,68,0.12); }
+  .btn.stuck.active{ background: var(--amber); color:#2a2007; border-color: var(--amber); }
+  .icon-btn{
+    width:32px; height:32px; border-radius:50%; border:1px solid rgba(255,255,255,0.2);
+    background: rgba(255,255,255,0.06); color:#fff; font-size:16px; display:flex; align-items:center; justify-content:center;
+  }
+
+  .board{ flex:1; display:flex; flex-direction:column; gap:10px; padding: 10px 8px 24px; overflow-x:auto; }
+  .row-label{ font-size:10.5px; text-transform:none; color: rgba(255,255,255,0.45); padding: 0 4px; }
+
+  .opponent-wrap{ transform: rotate(180deg); opacity:0.92; pointer-events:none; }
+  .cols{ display:flex; gap: 6px; padding: 0 4px; min-width:min-content; }
+  .col{ position:relative; width: var(--card-w); min-height: var(--card-h); }
+  .col .card{ position:absolute; top:0; left:0; }
+
+  .card{
+    width: var(--card-w); height: var(--card-h);
+    border-radius: var(--radius);
+    display:flex; flex-direction:column; justify-content:flex-start;
+    padding: 4px 5px;
+    font-weight:700;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.35);
+    transition: transform .12s ease;
+    position: relative;
+  }
+  .card.face{
+    background: var(--card-face); color: var(--ink);
+    border: 1px solid rgba(0,0,0,0.15);
+  }
+  .card.face.red{ color: var(--red); }
+  .card.face.black{ color: var(--ink); }
+  .card .rank{ font-size: 13px; line-height:1; flex: 0 0 auto; }
+  .card .suit-big{ flex: 1 1 auto; display:flex; align-items:center; justify-content:center; font-size:22px; opacity:0.9; pointer-events:none; }
+  @media (min-width:640px){ .card .rank{ font-size:16px; } .card .suit-big{ font-size:28px; } }
+
+  .card.back{ position:relative; overflow:hidden; border:1px solid rgba(0,0,0,0.3); }
+  .card.back.p1{ background: repeating-linear-gradient(45deg, #7c1418, #7c1418 4px, #b0272d 4px, #b0272d 8px); }
+  .card.back.p2{ background: repeating-linear-gradient(45deg, #123566, #123566 4px, #1b4f9c 4px, #1b4f9c 8px); }
+  .card.back::after{
+    content:''; position:absolute; inset:5px; border:1.5px solid rgba(255,255,255,0.35); border-radius:4px;
+  }
+  .card.empty-slot{
+    background: rgba(255,255,255,0.05); border: 1.5px dashed rgba(255,255,255,0.22);
+    display:flex; align-items:center; justify-content:center; font-size:20px; color: rgba(255,255,255,0.28);
+  }
+  .card.clickable{ cursor:pointer; }
+  .card.clickable:active{ transform: translateY(1px) scale(0.98); }
+  @keyframes shake{
+    10%,90%{ transform: translateX(-1px); }
+    20%,80%{ transform: translateX(2px); }
+    30%,50%,70%{ transform: translateX(-4px); }
+    40%,60%{ transform: translateX(4px); }
+  }
+  .card.shake{ animation: shake .4s; }
+  @keyframes popIn{
+    0%{ transform: scale(0.7); opacity:0.5; }
+    65%{ transform: scale(1.08); opacity:1; }
+    100%{ transform: scale(1); }
+  }
+  .card.pop{ animation: popIn .22s ease-out; }
+
+  .center-wrap{ background: rgba(0,0,0,0.15); border-radius:10px; padding:8px 6px; margin: 0 4px; }
+  .center-grid{ display:grid; grid-template-columns: repeat(4, var(--card-w)); gap: 8px 10px; justify-content:center; }
+  @media (min-width:640px){ .center-grid{ grid-template-columns: repeat(8, var(--card-w)); } }
+  .center-slot-label{ text-align:center; font-size:10px; color: rgba(255,255,255,0.4); margin-top:2px; }
+
+  .hand-row{ display:flex; align-items:flex-end; gap:16px; padding: 4px 8px 8px; }
+  .stock{ position:relative; cursor:pointer; }
+  .stock .count{ position:absolute; bottom:-16px; left:0; right:0; text-align:center; font-size:10px; color: rgba(255,255,255,0.5); }
+  .waste{ position:relative; width: calc(var(--card-w) + 24px); height: var(--card-h); }
+  .waste .card{ position:absolute; top:0; }
+
+  .bottom-actions{ display:flex; align-items:center; justify-content:space-between; padding: 6px 12px 4px; gap:10px; }
+
+  .modal-backdrop{ position:fixed; inset:0; background:rgba(0,0,0,0.55); display:flex; align-items:center; justify-content:center; z-index:100; padding:20px; }
+  .modal{ background:#0f3a29; border:1px solid rgba(255,255,255,0.15); border-radius:14px; padding:22px 20px; max-width:320px; text-align:center; box-shadow: 0 10px 40px rgba(0,0,0,0.5); }
+  .modal h2{ font-size:17px; color:#fff; margin: 0 0 8px; }
+  .modal p{ font-size:13.5px; color: var(--text-soft); margin: 0 0 16px; }
+  .modal .row{ display:flex; gap:10px; justify-content:center; }
+  .modal .btn.primary{ background: var(--amber); color:#2a2007; border-color: var(--amber); font-weight:700; }
+
+  .menu-sheet{ position:fixed; right:10px; top:52px; background:#0f3a29; border:1px solid rgba(255,255,255,0.15); border-radius:12px; padding:8px; z-index:90; box-shadow:0 8px 24px rgba(0,0,0,0.4); }
+  .menu-sheet button{ display:block; width:100%; text-align:left; background:none; border:none; color:#fff; padding:10px 14px; font-size:13.5px; border-radius:8px; }
+  .menu-sheet button:active{ background: rgba(255,255,255,0.08); }
+  .menu-sheet button.danger{ color:#ff8a80; }
+
+  .role-gate{ position:fixed; inset:0; background: var(--felt-dark); display:flex; align-items:center; justify-content:center; z-index:200; padding:24px; }
+  .role-card{ background:#0f3a29; border:1px solid rgba(255,255,255,0.15); border-radius:16px; padding:26px 22px; max-width:360px; text-align:center; }
+  .role-card h1{ color:#fff; font-size:20px; margin:0 0 6px; }
+  .role-card p{ font-size:13.5px; color:var(--text-soft); margin:0 0 18px; }
+  .role-card .btn{ width:100%; margin-bottom:8px; padding:11px; font-size:14px; }
+
+  .win-banner{ position:fixed; top:60px; left:50%; transform:translateX(-50%); background:var(--amber); color:#2a2007; font-weight:700; padding:10px 20px; border-radius:30px; box-shadow:0 6px 20px rgba(0,0,0,0.4); z-index:95; font-size:14px; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+
+/* =========================================================================
+   GAME ENGINE (pure functions, no DOM) — deal, validation, move resolution
+   ========================================================================= */
+const SUITS = ['H','D','S','C'];
+const SUIT_SYMBOL = { H:'♥', D:'♦', S:'♠', C:'♣' };
+const RED_SUITS = new Set(['H','D']);
+const isRed = (suit) => RED_SUITS.has(suit);
+const rankLabel = (r) => (r===1?'A': r===11?'J': r===12?'Q': r===13?'K': String(r));
+
+function makeDeck(owner){
+  const cards = [];
+  for(const suit of SUITS){
+    for(let rank=1; rank<=13; rank++){
+      cards.push({ id:`${owner}-${suit}${rank}`, owner, suit, rank, faceUp:false });
+    }
+  }
+  return cards;
+}
+function shuffle(arr){
+  const a = arr.slice();
+  for(let i=a.length-1;i>0;i--){
+    const j = Math.floor(Math.random()*(i+1));
+    [a[i],a[j]] = [a[j],a[i]];
+  }
+  return a;
+}
+function dealNewPlayer(owner){
+  const deck = shuffle(makeDeck(owner));
+  const tableau = [[],[],[],[],[],[],[]];
+  let idx = 0;
+  for(let col=0; col<7; col++){
+    for(let row=0; row<=col; row++){
+      const card = deck[idx++];
+      card.faceUp = (row===col);
+      tableau[col].push(card);
+    }
+  }
+  const stock = deck.slice(idx);
+  stock.forEach(c=>c.faceUp=false);
+  return { tableau, stock, waste: [] };
+}
+function newGameplay(){
+  const center = [];
+  for(const suit of SUITS){
+    center.push({ suit, cards: [] });
+    center.push({ suit, cards: [] });
+  }
+  return {
+    players: { p1: dealNewPlayer('p1'), p2: dealNewPlayer('p2') },
+    center,
+    stuck: { p1:false, p2:false },
+    winner: null,
+  };
+}
+function newGameState(){
+  return Object.assign({
+    seq: 1,
+    claims: { p1:false, p2:false },
+    resetPromptOpen: false,
+    resetVote: { p1:false, p2:false },
+  }, newGameplay());
+}
+
+function canPlaceOnTableau(card, refTop){
+  if(!refTop) return card.rank === 13;
+  return (isRed(card.suit) !== isRed(refTop.suit)) && (card.rank === refTop.rank - 1);
+}
+function canPlaceOnCenter(card, refTop, pileSuit){
+  if(card.suit !== pileSuit) return false;
+  if(!refTop) return card.rank === 1;
+  return card.rank === refTop.rank + 1;
+}
+function isValidRun(column, startIndex){
+  if(startIndex < 0 || startIndex >= column.length) return false;
+  for(let i=startIndex; i<column.length; i++){
+    if(!column[i].faceUp) return false;
+    if(i>startIndex){
+      const prev = column[i-1], cur = column[i];
+      if(isRed(prev.suit)===isRed(cur.suit)) return false;
+      if(prev.rank !== cur.rank+1) return false;
+    }
+  }
+  return true;
+}
+function getMovingCards(state, sel){
+  if(sel.kind === 'waste'){
+    const w = state.players[sel.owner].waste;
+    return w.length ? [w[0]] : null;
+  }
+  if(sel.kind === 'tableau'){
+    const col = state.players[sel.owner].tableau[sel.col];
+    return isValidRun(col, sel.startIndex) ? col.slice(sel.startIndex) : null;
+  }
+  if(sel.kind === 'center'){
+    const pile = state.center[sel.pileIndex];
+    return pile.cards.length ? [pile.cards[pile.cards.length-1]] : null;
+  }
+  return null;
+}
+function getValidDestinations(state, sel, movingCards, actingPlayer){
+  const dests = [];
+  const isSingle = movingCards.length === 1;
+  if(isSingle){
+    const card = movingCards[0];
+    for(let i=0;i<state.center.length;i++){
+      const pile = state.center[i];
+      const isOrigin = sel.kind==='center' && sel.pileIndex===i;
+      const stack = pile.cards;
+      const refTop = isOrigin ? stack[stack.length-2] : stack[stack.length-1];
+      if(canPlaceOnCenter(card, refTop, pile.suit)) dests.push({ kind:'center', pileIndex:i });
+    }
+  }
+  const targetOwner = sel.kind === 'center' ? actingPlayer : sel.owner;
+  const cols = state.players[targetOwner].tableau;
+  for(let c=0;c<cols.length;c++){
+    const isOrigin = sel.kind==='tableau' && sel.owner===targetOwner && sel.col===c;
+    const col = cols[c];
+    const refTop = isOrigin ? col[col.length-1-movingCards.length] : col[col.length-1];
+    if(canPlaceOnTableau(movingCards[0], refTop)) dests.push({ kind:'tableau', owner:targetOwner, col:c });
+  }
+  return dests;
+}
+function keyOf(d){ return d.kind==='center' ? `center-${d.pileIndex}` : `tableau-${d.owner}-${d.col}`; }
+function resolveMove(state, sel, actingPlayer){
+  const movingCards = getMovingCards(state, sel);
+  if(!movingCards) return { ok:false, reason:'no-card' };
+  let currentKey = null;
+  if(sel.kind==='tableau') currentKey = `tableau-${sel.owner}-${sel.col}`;
+  if(sel.kind==='center') currentKey = `center-${sel.pileIndex}`;
+  // Always: center piles first (in fixed order), then own tableau columns
+  // left-to-right — excluding wherever the card currently sits. This is a
+  // priority pick, not a round-robin: a card only ever "cycles" between two
+  // columns because each click re-picks the highest-priority spot that
+  // ISN'T its current one, which naturally alternates when exactly two
+  // columns qualify.
+  const dests = getValidDestinations(state, sel, movingCards, actingPlayer)
+    .filter(d => keyOf(d) !== currentKey);
+  if(dests.length===0) return { ok:false, reason:'no-destination' };
+  return { ok:true, movingCards, target: dests[0], sourceLen: movingCards.length };
+}
+function applyMove(state, sel, actingPlayer){
+  const res = resolveMove(state, sel, actingPlayer);
+  if(!res.ok) return res;
+  // remove from origin
+  if(sel.kind==='waste'){
+    state.players[sel.owner].waste.shift();
+  } else if(sel.kind==='tableau'){
+    const col = state.players[sel.owner].tableau[sel.col];
+    col.splice(sel.startIndex);
+    if(col.length && !col[col.length-1].faceUp) col[col.length-1].faceUp = true;
+  } else if(sel.kind==='center'){
+    state.center[sel.pileIndex].cards.pop();
+  }
+  // add to target
+  if(res.target.kind==='center'){
+    state.center[res.target.pileIndex].cards.push(...res.movingCards);
+  } else {
+    state.players[res.target.owner].tableau[res.target.col].push(...res.movingCards);
+  }
+  // win check
+  const p = state.players[actingPlayer];
+  if(p.tableau.every(c=>c.length===0) && p.stock.length===0 && p.waste.length===0){
+    state.winner = actingPlayer;
+  }
+  return res;
+}
+function drawThree(state, owner){
+  const p = state.players[owner];
+  if(p.stock.length===0) return false;
+  const drawn = p.stock.splice(0, Math.min(3, p.stock.length));
+  drawn.forEach(c=>c.faceUp=true);
+  p.waste = [...drawn.reverse(), ...p.waste];
+  return true;
+}
+// Click on the empty stock circle: draw if there's stock left, otherwise
+// (stock exhausted) flip the whole waste back over into the stock so a
+// player can solo-cycle through their own hand again from the top.
+function drawOrRecycle(state, owner){
+  const p = state.players[owner];
+  if(p.stock.length > 0){
+    drawThree(state, owner);
+    return { poppedId: p.waste[0] ? p.waste[0].id : null };
+  }
+  if(p.waste.length > 0){
+    const recycled = p.waste.slice().reverse();
+    recycled.forEach(c=>c.faceUp=false);
+    p.stock = recycled;
+    p.waste = [];
+    return { recycled:true };
+  }
+  return null;
+}
+function maybeAutoCycle(state){
+  if(state.stuck.p1 && state.stuck.p2){
+    for(const owner of ['p1','p2']){
+      const p = state.players[owner];
+      if(p.waste.length){
+        const topCard = p.waste.shift(); // the active/top card of the hand
+        topCard.faceUp = false;
+        // Every other card still in hand goes back into the stock face down too —
+        // the whole hand resets, not just the top card.
+        const rest = p.waste.map(c=>{ c.faceUp = false; return c; });
+        p.stock = [...rest, ...p.stock];
+        p.stock.push(topCard); // ...except the top card, which goes to the very bottom.
+        p.waste = [];
+      }
+    }
+    state.stuck.p1 = false;
+    state.stuck.p2 = false;
+    return true;
+  }
+  return false;
+}
+function maybeResolveReset(state){
+  if(state.resetVote.p1 && state.resetVote.p2){
+    const claims = state.claims;
+    Object.assign(state, newGameplay());
+    state.claims = claims;
+    state.resetVote = { p1:false, p2:false };
+    state.resetPromptOpen = false;
+    return true;
+  }
+  return false;
+}
+
+/* =========================================================================
+   STORAGE / SYNC LAYER (Anthropic's persistent artifact storage — this is
+   the one channel exempt from the sandbox's runtime network block, which
+   is why it's the right tool here even though it's polling, not push)
+   ========================================================================= */
+const STATE_KEY = 'game';
+async function loadState(){
+  try{
+    const res = await window.storage.get(STATE_KEY, true);
+    return res ? JSON.parse(res.value) : null;
+  }catch(e){ return null; }
+}
+async function saveState(state){
+  state.seq = (state.seq||0) + 1;
+  await window.storage.set(STATE_KEY, JSON.stringify(state), true);
+}
+
+let cached = null;      // last known-good state
+let myRole = null;      // 'p1' | 'p2' | 'spectator'
+let pendingPopId = null;  // card id to play a "landed" pop animation on next render
+
+// Runs a mutation against the freshest possible state, saves, updates cache, re-renders.
+async function withFreshState(mutator){
+  let state = await loadState();
+  if(!state) state = newGameState();
+  const result = mutator(state) || {};
+  if(result.abort){
+    cached = state;
+    render();
+    return result;
+  }
+  maybeAutoCycle(state);
+  maybeResolveReset(state);
+  await saveState(state);
+  cached = state;
+  render();
+  return result;
+}
+
+async function ensureRole(){
+  let state = await loadState();
+  if(!state){
+    state = newGameState();
+    state.claims.p1 = true;
+    myRole = 'p1';
+    await saveState(state);
+    cached = state;
+    return;
+  }
+  cached = state;
+  if(!state.claims.p1){
+    myRole = null; // ask
+  } else if(!state.claims.p2){
+    myRole = null; // ask
+  } else {
+    myRole = null; // both taken, ask which one this device is
+  }
+}
+
+async function claimRole(role){
+  if(role === 'spectator'){ myRole = 'spectator'; render(); return; }
+  await withFreshState(state=>{
+    if(!state.claims[role]) state.claims[role] = true;
+    myRole = role;
+  });
+}
+
+/* =========================================================================
+   RENDERING
+   ========================================================================= */
+const app = document.getElementById('app');
+
+function cardFaceHTML(card){
+  const cls = isRed(card.suit) ? 'red' : 'black';
+  return `<div class="card face ${cls}">
+    <div class="rank">${rankLabel(card.rank)}${SUIT_SYMBOL[card.suit]}</div>
+    <div class="suit-big">${SUIT_SYMBOL[card.suit]}</div>
+  </div>`;
+}
+function cardBackHTML(owner){
+  return `<div class="card back ${owner}"></div>`;
+}
+function emptySlotHTML(symbol){
+  return `<div class="card empty-slot">${symbol||''}</div>`;
+}
+
+function renderTableauColumn(col, {interactive, owner}){
+  let html = `<div class="col" style="height:${(col.length? (col.length-1)*22 : 0) + 82}px">`;
+  col.forEach((card, i)=>{
+    const top = i * 22;
+    const isTopRun = interactive && card.faceUp && isValidRun(col, i);
+    const dataAttr = isTopRun ? `data-kind="tableau" data-owner="${owner}" data-col="${col.__index}" data-start="${i}" data-cardid="${card.id}"` : '';
+    const clickable = isTopRun ? 'clickable' : '';
+    if(card.faceUp){
+      html += `<div class="cardwrap" style="position:absolute; top:${top}px; left:0;" ${dataAttr}>
+        <div class="card face ${isRed(card.suit)?'red':'black'} ${clickable}">
+          <div class="rank">${rankLabel(card.rank)}${SUIT_SYMBOL[card.suit]}</div>
+          <div class="suit-big">${SUIT_SYMBOL[card.suit]}</div>
+        </div>
+      </div>`;
+    } else {
+      html += `<div style="position:absolute; top:${top}px; left:0;">${cardBackHTML(card.owner)}</div>`;
+    }
+  });
+  if(col.length===0){
+    html += `<div style="position:absolute; top:0; left:0;">${emptySlotHTML('K')}</div>`;
+  }
+  html += `</div>`;
+  return html;
+}
+
+function renderColsRow(tableau, opts){
+  const cols = tableau.map((c,i)=>{ c.__index = i; return c; });
+  return `<div class="cols">${cols.map(c=>renderTableauColumn(c, opts)).join('')}</div>`;
+}
+
+function renderCenter(state, myRole){
+  const cells = state.center.map((pile, i)=>{
+    const top = pile.cards[pile.cards.length-1];
+    if(!top){
+      return `<div class="cardwrap" data-kind="center" data-pile="${i}">
+        ${emptySlotHTML(SUIT_SYMBOL[pile.suit])}
+      </div>`;
+    }
+    return `<div class="cardwrap" data-kind="center" data-pile="${i}" data-cardid="${top.id}">
+      <div class="card face ${isRed(top.suit)?'red':'black'} clickable">
+        <div class="rank">${rankLabel(top.rank)}${SUIT_SYMBOL[top.suit]}</div>
+        <div class="suit-big">${SUIT_SYMBOL[top.suit]}</div>
+      </div>
+    </div>`;
+  });
+  return `<div class="center-wrap"><div class="center-grid">${cells.join('')}</div></div>`;
+}
+
+function renderHand(state, owner){
+  const p = state.players[owner];
+  const visible = p.waste.slice(0,3); // visible[0] is the active/playable card
+  // Render back-to-front (oldest buried card first, active card last) so the
+  // active card is both the top of the DOM paint order and fully clickable.
+  const backToFront = visible.slice().reverse();
+  const wasteHtml = backToFront.map((c, slot)=>{
+    const isActive = slot === backToFront.length - 1;
+    const dataAttr = isActive ? `data-kind="waste" data-owner="${owner}" data-cardid="${c.id}"` : '';
+    const clickable = isActive ? 'clickable' : '';
+    return `<div class="cardwrap" style="position:absolute; left:${slot*14}px;" ${dataAttr}>
+      <div class="card face ${isRed(c.suit)?'red':'black'} ${clickable}">
+        <div class="rank">${rankLabel(c.rank)}${SUIT_SYMBOL[c.suit]}</div>
+        <div class="suit-big">${SUIT_SYMBOL[c.suit]}</div>
+      </div>
+    </div>`;
+  }).join('');
+  const stockHtml = p.stock.length ? cardBackHTML(owner) : emptySlotHTML('↻');
+  return `<div class="hand-row">
+    <div class="stock" data-kind="draw" data-owner="${owner}">
+      ${stockHtml}
+      <div class="count">${p.stock.length} left</div>
+    </div>
+    <div class="waste">${wasteHtml}</div>
+  </div>`;
+}
+
+function render(){
+  if(!cached){ app.innerHTML = `<div style="padding:40px;text-align:center;color:#fff;">Loading…</div>`; return; }
+  const state = cached;
+
+  if(myRole === null){
+    const p1Free = !state.claims.p1;
+    const p2Free = !state.claims.p2;
+    let body;
+    if(p1Free || p2Free){
+      body = `<p>Whoever opens this link first gets seated. Pick your seat to start.</p>
+        <div>
+          ${p1Free ? `<button class="btn" data-role="p1" style="border-color:var(--p1-accent)">I'm Player 1 (red deck)</button>` : ''}
+          ${p2Free ? `<button class="btn" data-role="p2" style="border-color:var(--p2-accent)">I'm Player 2 (blue deck)</button>` : ''}
+        </div>`;
+    } else {
+      body = `<p>Both seats are already taken. If you got disconnected, pick who you are — otherwise just watch.</p>
+        <button class="btn" data-role="p1" style="border-color:var(--p1-accent)">I'm Player 1 (red deck)</button>
+        <button class="btn" data-role="p2" style="border-color:var(--p2-accent)">I'm Player 2 (blue deck)</button>
+        <button class="btn" data-role="spectator">Just watching</button>`;
+    }
+    app.innerHTML = `<div class="role-gate"><div class="role-card"><h1>Speed Solitaire</h1>${body}</div></div>`;
+    app.querySelectorAll('[data-role]').forEach(btn=>{
+      btn.addEventListener('click', ()=> claimRole(btn.dataset.role));
+    });
+    return;
+  }
+
+  const me = myRole === 'spectator' ? 'p1' : myRole;
+  const opp = me === 'p1' ? 'p2' : 'p1';
+  const iAmPlayer = myRole !== 'spectator';
+
+  const myStuck = iAmPlayer ? state.stuck[myRole] : false;
+  const oppRole = iAmPlayer ? opp : 'p2';
+  const oppStuck = state.stuck[oppRole];
+
+  let html = '';
+  html += `<div class="topbar">
+    <div class="opp-status"><span class="light ${oppStuck?'on':''}"></span><span>${myRole==='spectator'?'P2':'Opponent'} stuck?</span></div>
+    <h1>Speed Solitaire</h1>
+    <div class="topbar-right">
+      ${iAmPlayer ? `<button class="btn stuck ${myStuck?'active':''}" id="stuckBtn">${myStuck?'Waiting…':"I'm stuck"}</button>` : ''}
+      <button class="icon-btn" id="menuBtn">⋯</button>
+    </div>
+  </div>`;
+
+  html += `<div class="board">`;
+  html += `<div class="opponent-wrap">
+      <div class="row-label" style="text-align:center">${oppRole==='p1'?'Player 1':'Player 2'}</div>
+      ${renderColsRow(state.players[oppRole].tableau, {interactive:false, owner:oppRole})}
+    </div>`;
+  html += renderCenter(state, myRole);
+  html += `<div>
+      <div class="row-label">Your columns</div>
+      ${renderColsRow(state.players[me].tableau, {interactive: iAmPlayer, owner: me})}
+    </div>`;
+  if(iAmPlayer) html += renderHand(state, me);
+  html += `</div>`; // .board
+
+  if(state.winner){
+    const winnerLabel = state.winner==='p1' ? 'Player 1' : 'Player 2';
+    const youWon = iAmPlayer && myRole === state.winner;
+    html += modalHTML(
+      `${winnerLabel} wins! 🎉`,
+      youWon ? 'You cleared your tableau first. Play again?' : `${winnerLabel} cleared their tableau first. Play again?`,
+      iAmPlayer ? [{ id:'playAgainBtn', label:'Play Again', cls:'primary' }] : []
+    );
+  }
+
+  if(state.resetPromptOpen && iAmPlayer){
+    if(state.resetVote[myRole] && !state.resetVote[opp]){
+      html += modalHTML('Waiting for the other player…', 'They need to hit Reset too before the game restarts.', [
+        {id:'cancelReset', label:'Cancel', cls:''}
+      ]);
+    } else if(!state.resetVote[myRole]){
+      html += modalHTML('Reset the game?', 'This reshuffles both decks and starts over from scratch.', [
+        {id:'cancelReset', label:'Cancel', cls:''},
+        {id:'confirmReset', label:'Reset', cls:'primary'}
+      ]);
+    }
+  }
+
+  app.innerHTML = html;
+  wireEvents();
+
+  if(pendingPopId){
+    const wrap = app.querySelector(`[data-cardid="${pendingPopId}"]`);
+    const cardEl = wrap ? (wrap.querySelector('.card') || wrap) : null;
+    if(cardEl){
+      cardEl.classList.add('pop');
+      cardEl.addEventListener('animationend', ()=> cardEl.classList.remove('pop'), { once:true });
+    }
+    pendingPopId = null;
+  }
+}
+
+function modalHTML(title, text, buttons){
+  return `<div class="modal-backdrop"><div class="modal">
+    <h2>${title}</h2><p>${text}</p>
+    <div class="row">${buttons.map(b=>`<button class="btn ${b.cls}" id="${b.id}">${b.label}</button>`).join('')}</div>
+  </div></div>`;
+}
+
+function shakeElement(wrapEl){
+  const cardEl = wrapEl.querySelector('.card') || wrapEl;
+  cardEl.classList.remove('shake');
+  void cardEl.offsetWidth;
+  cardEl.classList.add('shake');
+}
+
+function wireEvents(){
+  const menuBtn = app.querySelector('#menuBtn');
+  if(menuBtn) menuBtn.addEventListener('click', openMenu);
+
+  const stuckBtn = app.querySelector('#stuckBtn');
+  if(stuckBtn) stuckBtn.addEventListener('click', ()=>{
+    withFreshState(state=>{ state.stuck[myRole] = !state.stuck[myRole]; });
+  });
+
+  const cancelReset = app.querySelector('#cancelReset');
+  if(cancelReset) cancelReset.addEventListener('click', ()=>{
+    withFreshState(state=>{ state.resetVote = { p1:false, p2:false }; state.resetPromptOpen = false; });
+  });
+  const confirmReset = app.querySelector('#confirmReset');
+  if(confirmReset) confirmReset.addEventListener('click', ()=>{
+    withFreshState(state=>{ state.resetVote[myRole] = true; });
+  });
+
+  const playAgainBtn = app.querySelector('#playAgainBtn');
+  if(playAgainBtn) playAgainBtn.addEventListener('click', ()=>{
+    withFreshState(state=>{
+      const claims = state.claims;
+      Object.assign(state, newGameplay());
+      state.claims = claims;
+    });
+  });
+
+  app.querySelectorAll('[data-kind="draw"]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      if(el.dataset.owner !== myRole) return;
+      withFreshState(state=>{
+        if(state.winner) return { abort:true };
+        const res = drawOrRecycle(state, myRole);
+        if(!res) return { abort:true };
+        if(res.poppedId) pendingPopId = res.poppedId;
+      });
+    });
+  });
+
+  app.querySelectorAll('[data-kind="waste"], [data-kind="tableau"], [data-kind="center"]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const kind = el.dataset.kind;
+      if((kind==='waste' || kind==='tableau') && el.dataset.owner !== myRole) return;
+      if(myRole === 'spectator') return;
+      const sel = kind==='waste' ? { kind, owner: myRole }
+        : kind==='tableau' ? { kind, owner: myRole, col: parseInt(el.dataset.col), startIndex: parseInt(el.dataset.start) }
+        : { kind, pileIndex: parseInt(el.dataset.pile) };
+      withFreshState(state=>{
+        if(state.winner) return { abort:true };
+        const res = applyMove(state, sel, myRole);
+        if(!res.ok){
+          shakeElement(el);
+          return { abort:true };
+        }
+        pendingPopId = res.movingCards[res.movingCards.length-1].id;
+      });
+    });
+  });
+}
+
+function openMenu(){
+  const existing = document.querySelector('.menu-sheet');
+  if(existing){ existing.remove(); return; }
+  const sheet = document.createElement('div');
+  sheet.className = 'menu-sheet';
+  sheet.innerHTML = `
+    <button id="menuReset" class="danger">Reset game…</button>
+    <button id="menuClose">Close</button>
+  `;
+  document.body.appendChild(sheet);
+  sheet.querySelector('#menuClose').addEventListener('click', ()=> sheet.remove());
+  sheet.querySelector('#menuReset').addEventListener('click', ()=>{
+    sheet.remove();
+    if(myRole === 'spectator') return;
+    withFreshState(state=>{ state.resetPromptOpen = true; });
+  });
+  setTimeout(()=>{
+    document.addEventListener('click', function closeOnce(e){
+      if(!sheet.contains(e.target) && e.target.id !== 'menuBtn'){
+        sheet.remove();
+        document.removeEventListener('click', closeOnce);
+      }
+    });
+  }, 0);
+}
+
+/* =========================================================================
+   BOOT + POLLING
+   ========================================================================= */
+/* =========================================================================
+   BOOT + POLLING
+   ========================================================================= */
+async function boot(){
+  await ensureRole();
+  render();
+  setInterval(async ()=>{
+    const fresh = await loadState();
+    if(!fresh) return;
+    const changed = JSON.stringify(fresh) !== JSON.stringify(cached);
+    if(changed){
+      const cycled = maybeAutoCycle(fresh);
+      const resetHappened = maybeResolveReset(fresh);
+      if(cycled || resetHappened){
+        await saveState(fresh);
+      }
+      cached = fresh;
+      render();
+    }
+  }, 350);
+}
+boot();
+</script>
+</body>
+</html>
