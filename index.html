@@ -399,10 +399,48 @@ const fbApp = initializeApp(firebaseConfig);
 const db = getDatabase(fbApp);
 const gameRef = ref(db, 'game');
 
+// Firebase Realtime Database silently omits empty arrays/objects on write —
+// an empty center pile's "cards": [] simply won't exist when read back, and
+// a fully-emptied tableau column can shift the position of the columns after
+// it if we're not careful. This rebuilds a guaranteed-complete shape from
+// whatever Firebase actually gives us, using known fixed lengths (7 columns,
+// 8 center piles) so a missing slot is filled in at the RIGHT position
+// rather than causing everything after it to shift left.
+function fixedArray(raw, length, makeDefault){
+  const out = [];
+  for(let i=0;i<length;i++){
+    out.push(raw && raw[i] !== undefined ? raw[i] : makeDefault());
+  }
+  return out;
+}
+function asArray(raw){
+  if(Array.isArray(raw)) return raw;
+  if(raw && typeof raw === 'object') return Object.keys(raw).sort((a,b)=>a-b).map(k=>raw[k]);
+  return [];
+}
+function normalizeState(raw){
+  if(!raw) return raw;
+  raw.claims = raw.claims || { p1:false, p2:false };
+  raw.resetVote = raw.resetVote || { p1:false, p2:false };
+  raw.resetPromptOpen = !!raw.resetPromptOpen;
+  raw.stuck = raw.stuck || { p1:false, p2:false };
+  if(raw.winner === undefined) raw.winner = null;
+  raw.players = raw.players || {};
+  for(const owner of ['p1','p2']){
+    const p = raw.players[owner] = raw.players[owner] || {};
+    p.tableau = fixedArray(p.tableau, 7, ()=>[]).map(col => asArray(col));
+    p.stock = asArray(p.stock);
+    p.waste = asArray(p.waste);
+  }
+  raw.center = fixedArray(raw.center, 8, ()=>({ suit:null, cards:[] }))
+    .map(pile => ({ suit: pile && pile.suit, cards: asArray(pile && pile.cards) }));
+  return raw;
+}
+
 async function loadState(){
   try{
     const snap = await get(gameRef);
-    return snap.exists() ? snap.val() : null;
+    return snap.exists() ? normalizeState(snap.val()) : null;
   }catch(e){ console.error('Firebase read failed:', e); return null; }
 }
 async function saveState(state){
@@ -757,7 +795,7 @@ async function boot(){
   await ensureRole();
   render();
   onValue(gameRef, (snap)=>{
-    const fresh = snap.exists() ? snap.val() : null;
+    const fresh = snap.exists() ? normalizeState(snap.val()) : null;
     if(!fresh) return;
     const changed = JSON.stringify(fresh) !== JSON.stringify(cached);
     if(changed){
