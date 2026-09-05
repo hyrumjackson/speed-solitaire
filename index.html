@@ -153,7 +153,9 @@
 <body>
 <div id="app"></div>
 
-<script>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+import { getDatabase, ref, get, set, onValue } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
 /* =========================================================================
    GAME ENGINE (pure functions, no DOM) — deal, validation, move resolution
@@ -381,20 +383,31 @@ function maybeResolveReset(state){
 }
 
 /* =========================================================================
-   STORAGE / SYNC LAYER (Anthropic's persistent artifact storage — this is
-   the one channel exempt from the sandbox's runtime network block, which
-   is why it's the right tool here even though it's polling, not push)
+   STORAGE / SYNC LAYER (Firebase Realtime Database)
    ========================================================================= */
-const STATE_KEY = 'game';
+const firebaseConfig = {
+  apiKey: "AIzaSyC_3Zi76EMh3fMufZmdMZE_yllSjH09ftY",
+  authDomain: "speed-solitaire-handl.firebaseapp.com",
+  databaseURL: "https://speed-solitaire-handl-default-rtdb.firebaseio.com",
+  projectId: "speed-solitaire-handl",
+  storageBucket: "speed-solitaire-handl.firebasestorage.app",
+  messagingSenderId: "934299874283",
+  appId: "1:934299874283:web:cea593d051afbe707c9fae",
+  measurementId: "G-70SZ5XTXLD"
+};
+const fbApp = initializeApp(firebaseConfig);
+const db = getDatabase(fbApp);
+const gameRef = ref(db, 'game');
+
 async function loadState(){
   try{
-    const res = await window.storage.get(STATE_KEY, true);
-    return res ? JSON.parse(res.value) : null;
-  }catch(e){ return null; }
+    const snap = await get(gameRef);
+    return snap.exists() ? snap.val() : null;
+  }catch(e){ console.error('Firebase read failed:', e); return null; }
 }
 async function saveState(state){
   state.seq = (state.seq||0) + 1;
-  await window.storage.set(STATE_KEY, JSON.stringify(state), true);
+  await set(gameRef, state);
 }
 
 let cached = null;      // last known-good state
@@ -737,30 +750,29 @@ function openMenu(){
 }
 
 /* =========================================================================
-   BOOT + POLLING
-   ========================================================================= */
-/* =========================================================================
-   BOOT + POLLING
+   BOOT + LIVE SYNC (Firebase Realtime Database — works fine here since
+   GitHub Pages has none of the Claude-artifact sandbox restrictions)
    ========================================================================= */
 async function boot(){
   await ensureRole();
   render();
-  setInterval(async ()=>{
-    const fresh = await loadState();
+  onValue(gameRef, (snap)=>{
+    const fresh = snap.exists() ? snap.val() : null;
     if(!fresh) return;
     const changed = JSON.stringify(fresh) !== JSON.stringify(cached);
     if(changed){
       const cycled = maybeAutoCycle(fresh);
       const resetHappened = maybeResolveReset(fresh);
       if(cycled || resetHappened){
-        await saveState(fresh);
+        saveState(fresh);
       }
       cached = fresh;
       render();
     }
-  }, 350);
+  });
 }
 boot();
 </script>
 </body>
+
 </html>
